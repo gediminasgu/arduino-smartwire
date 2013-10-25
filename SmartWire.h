@@ -67,32 +67,46 @@ Event structure (Based on modbus)
 
 #include "Wire.h"
 
+#define SW_READINGS_BUFFER_LENGTH 20
+
+typedef struct {
+	unsigned char buffer[BUFFER_LENGTH];
+	unsigned char length;
+} SmartData;
+
 class SmartTwoWire: public TwoWire
 {
 	private:
-		static unsigned char frame[];
 		static unsigned int holdingRegsSize; // size of the register array
 		static unsigned int* regs; // user array address
 		static unsigned char broadcastFlag;
 		static unsigned char slaveID;
 		static unsigned char function;
-		static unsigned int errorCount;
 		static unsigned char framePos;
-        static void (*user_onDataReceive)(void);
+		static SmartData readingsBuffer[SW_READINGS_BUFFER_LENGTH];
+		static unsigned char assignedBufferIndex;
+		static unsigned char currentBufferIndex;
+		static unsigned char isDataAvailable;
+        static void (*user_onEventReceive)(void);
 		static void onDataReceived(int);
+		static void onEventReceived(unsigned char);
 		void exceptionResponse(unsigned char exception);
 		void readData(int);
 	public:
+		static unsigned char frame[];
+		static unsigned char frameLength;
+		static unsigned int errorCount;
 		void begin(unsigned char _slaveID, unsigned int _holdingRegsSize, unsigned int* _regs);
-		unsigned int calculateCRC(unsigned char bufferSize);
+		unsigned int calculateCRC(unsigned char* buffer, unsigned char bufferSize);
 		void sendPacket(unsigned char bufferSize);
 		void initEvent();
 		void writeToBuf(unsigned char b);
 		void writeToBuf(unsigned int b);
 		void writeToBuf(float b);
 		void flush();
-	virtual
-		void onDataReceive( void (*)(void) );
+		int available();
+		SmartData readBuffer();
+		void onEventReceive( void (*)(void) );
 };
 
 extern SmartTwoWire SmartWire;

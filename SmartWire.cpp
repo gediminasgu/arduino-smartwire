@@ -2,8 +2,9 @@
 #include "SmartWire.h"
 
 // frame[] is used to recieve and transmit packages. 
-// The maximum serial ring buffer size is 128
+// The maximum wire buffer size is 32
 unsigned char SmartTwoWire::frame[BUFFER_LENGTH];
+unsigned char SmartTwoWire::frameLength;
 unsigned int SmartTwoWire::holdingRegsSize; // size of the register array
 unsigned int* SmartTwoWire::regs; // user array address
 unsigned char SmartTwoWire::broadcastFlag;
@@ -12,7 +13,12 @@ unsigned char SmartTwoWire::function;
 unsigned int SmartTwoWire::errorCount;
 unsigned char SmartTwoWire::framePos;
 
-void (*SmartTwoWire::user_onDataReceive)(void);
+SmartData SmartTwoWire::readingsBuffer[20];
+unsigned char SmartTwoWire::assignedBufferIndex = 0;
+unsigned char SmartTwoWire::currentBufferIndex = 0;
+unsigned char SmartTwoWire::isDataAvailable = 0;
+
+void (*SmartTwoWire::user_onEventReceive)(void);
 
 void SmartTwoWire::begin(unsigned char _slaveID, unsigned int _holdingRegsSize, unsigned int* _regs){
 	TwoWire::begin(_slaveID);
@@ -25,9 +31,9 @@ void SmartTwoWire::begin(unsigned char _slaveID, unsigned int _holdingRegsSize, 
 }
 
 // sets function called on slave write
-void SmartTwoWire::onDataReceive( void (*function)(void) )
+void SmartTwoWire::onEventReceive( void (*function)(void) )
 {
-  user_onDataReceive = function;
+  user_onEventReceive = function;
 }
 
 void SmartTwoWire::onDataReceived(int howMany)
@@ -37,22 +43,24 @@ void SmartTwoWire::onDataReceived(int howMany)
 
 void SmartTwoWire::readData(int howMany)
 {
-	if (available() == 0) {
+	if (TwoWire::available() == 0) {
 		return;
 	}
 
-	  unsigned char buffer = 0;
+	  unsigned char bufferLength = 0;
 	  unsigned char overflow = 0;
+	  unsigned char buffer[BUFFER_LENGTH];
+	  
 
-	  while (available() > 0){
+	  while (TwoWire::available() > 0){
 		  if (overflow) 
 			  read();
 		  else
 		  {
-			  if (buffer == BUFFER_LENGTH)
+			  if (bufferLength == BUFFER_LENGTH)
 				  overflow = 1;
-			  frame[buffer] = read();
-			  buffer++;
+			  buffer[bufferLength] = read();
+			  bufferLength++;
 		  }
 	  }
 
@@ -63,16 +71,16 @@ void SmartTwoWire::readData(int howMany)
 		  return;
 
 	  // The minimum request packet is 8 bytes for function 3 & 16
-    if (buffer > 7) 
+    if (bufferLength > 7) 
 	{
-		unsigned char id = frame[0];
+		unsigned char id = buffer[0];
 		
-        unsigned int crc = ((frame[buffer - 2] << 8) | frame[buffer - 1]); // combine the crc Low & High bytes
-        if (calculateCRC(buffer - 2) == crc) // if the calculated crc matches the recieved crc continue
+        unsigned int crc = ((buffer[bufferLength - 1] << 8) | buffer[bufferLength - 2]); // combine the crc Low & High bytes
+        if (calculateCRC(buffer, bufferLength - 2) == crc) // if the calculated crc matches the recieved crc continue
         {
-				  function = frame[1];
-				  unsigned int startingAddress = ((frame[2] << 8) | frame[3]); // combine the starting address bytes
-				  unsigned int no_of_registers = ((frame[4] << 8) | frame[5]); // combine the number of register bytes	
+				  function = buffer[1];
+				  unsigned int startingAddress = ((buffer[2] << 8) | buffer[3]); // combine the starting address bytes
+				  unsigned int no_of_registers = ((buffer[4] << 8) | buffer[5]); // combine the number of register bytes	
 				  unsigned int maxData = startingAddress + no_of_registers;
 				  unsigned char index;
 				  unsigned char address;
@@ -104,7 +112,7 @@ void SmartTwoWire::readData(int howMany)
 								  address++;
 							  }	
 							
-							  crc16 = calculateCRC(responseFrameSize - 2);
+							  crc16 = calculateCRC(frame, responseFrameSize - 2);
 							  frame[responseFrameSize - 2] = crc16 >> 8; // split crc into 2 bytes
 							  frame[responseFrameSize - 1] = crc16 & 0xFF;
 							  sendPacket(responseFrameSize);
@@ -121,7 +129,7 @@ void SmartTwoWire::readData(int howMany)
             // minus the request bytes.
 					  // id + function + (2 * address bytes) + (2 * no of register bytes) + 
             // byte count + (2 * CRC bytes) = 9 bytes
-					  if (frame[6] == (buffer - 9)) 
+					  if (frame[6] == (bufferLength - 9)) 
 					  {
 						  if (startingAddress < holdingRegsSize) // check exception 2 ILLEGAL DATA ADDRESS
 						  {
@@ -136,7 +144,7 @@ void SmartTwoWire::readData(int howMany)
 								  }	
 								
 								  // only the first 6 bytes are used for CRC calculation
-								  crc16 = calculateCRC(6); 
+								  crc16 = calculateCRC(frame, 6); 
 								  frame[6] = crc16 >> 8; // split crc into 2 bytes
 								  frame[7] = crc16 & 0xFF;
 								
@@ -153,14 +161,39 @@ void SmartTwoWire::readData(int howMany)
 					  }
 					  else 
 						  errorCount++; // corrupted packet
-          }					
+				  }
+				  else if (function == 0) { // this packet is event
+				  // Check if the recieved number of bytes matches the calculated bytes 
+            // minus the request bytes.
+					  // id + function + (2 * address bytes) + (2 * no of register bytes) + 
+            // byte count + (2 * CRC bytes) = 9 bytes
+					  if (buffer[2] == (bufferLength - 6)) 
+					  {
+						  assignedBufferIndex++;
+						  isDataAvailable = 1;
+						  if (assignedBufferIndex==20)
+							assignedBufferIndex = 0;
+							
+							for (int i=0; i<BUFFER_LENGTH; i++)
+							  readingsBuffer[assignedBufferIndex].buffer[i] = buffer[i];
+							
+						  readingsBuffer[assignedBufferIndex].length = bufferLength;
+
+						  if (user_onEventReceive) {
+							  user_onEventReceive();
+						  }
+					  }
+					  else 
+						  errorCount++; // corrupted packet
+				  }
 				  else
 					  exceptionResponse(1); // exception 1 ILLEGAL FUNCTION
         }
-			  else // checksum failed
-				  errorCount++;
+			  else { // checksum failed
+				errorCount++;
+			}
     }
-	else if (buffer > 0 && buffer < 8) {
+	else if (bufferLength > 0 && bufferLength < 8) {
 		  errorCount++; // corrupted packet
 	}
 }
@@ -174,7 +207,7 @@ void SmartTwoWire::exceptionResponse(unsigned char exception)
 		frame[0] = slaveID;
 		frame[1] = (function | 0x80); // set MSB bit high, informs the master of an exception
 		frame[2] = exception;
-		unsigned int crc16 = calculateCRC(3); // ID, function|0x80, exception code
+		unsigned int crc16 = calculateCRC(frame, 3); // ID, function|0x80, exception code
 		frame[3] = crc16 >> 8;
 		frame[4] = crc16 & 0xFF;
     // exception response is always 5 bytes 
@@ -183,13 +216,13 @@ void SmartTwoWire::exceptionResponse(unsigned char exception)
 	}
 }
 
-unsigned int SmartTwoWire::calculateCRC(unsigned char bufferSize) 
+unsigned int SmartTwoWire::calculateCRC(unsigned char* buffer, unsigned char bufferSize) 
 {
   unsigned int temp, temp2, flag;
   temp = 0xFFFF;
   for (unsigned char i = 0; i < bufferSize; i++)
   {
-    temp = temp ^ frame[i];
+    temp = temp ^ buffer[i];
     for (unsigned char j = 1; j <= 8; j++)
     {
       flag = temp & 0x0001;
@@ -248,11 +281,28 @@ void SmartTwoWire::flush() {
 	frame[2] = framePos - 4;
 	
 	unsigned int crc16;
-	crc16 = calculateCRC(framePos);
-	frame[framePos + 1] = crc16 >> 8; // split crc into 2 bytes
-	frame[framePos] = crc16 & 0xFF;
+	crc16 = calculateCRC(frame, framePos);
+	frame[framePos] = crc16 >> 8; // split crc into 2 bytes
+	frame[framePos + 1] = crc16 & 0xFF;
 	framePos += 2;
 	sendPacket(framePos);
+}
+
+int SmartTwoWire::available() {
+	return isDataAvailable;
+}
+
+SmartData SmartTwoWire::readBuffer() {
+	SmartData result = readingsBuffer[currentBufferIndex];
+	
+	if (currentBufferIndex == assignedBufferIndex)
+		isDataAvailable = 0;
+	
+	currentBufferIndex++;
+	if (currentBufferIndex >= 20)
+		currentBufferIndex = 0;
+		
+	return result;
 }
 
 SmartTwoWire SmartWire = SmartTwoWire();
