@@ -75,7 +75,7 @@ void SmartTwoWire::readData(int howMany)
 	{
 		unsigned char id = buffer[0];
 		
-        unsigned int crc = ((buffer[bufferLength - 1] << 8) | buffer[bufferLength - 2]); // combine the crc Low & High bytes
+        unsigned int crc = ((buffer[bufferLength - 2] << 8) | buffer[bufferLength - 1]); // combine the crc Low & High bytes
         if (calculateCRC(buffer, bufferLength - 2) == crc) // if the calculated crc matches the recieved crc continue
         {
 				  function = buffer[1];
