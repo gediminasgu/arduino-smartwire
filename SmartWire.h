@@ -12,6 +12,7 @@ Event structure (Based on modbus)
   0 - other
   1 - relay/switch/regulator position (0 - off, 255 - on)
   2 - temperature
+  3 - general float value (1 byte for value ID, 4 bytes for value)
  */
 
 

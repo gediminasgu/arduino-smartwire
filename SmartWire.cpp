@@ -248,6 +248,8 @@ void SmartTwoWire::sendPacket(unsigned char bufferSize)
     write(frame[i]);
 
   endTransmission();
+  
+  frameLength = bufferSize;
 }
 
 void SmartTwoWire::initEvent() {
