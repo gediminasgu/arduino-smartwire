@@ -1,4 +1,4 @@
-#include "WSWire.h"
+#include "Wire.h"
 #include "SmartWire.h"
 
 // frame[] is used to recieve and transmit packages. 

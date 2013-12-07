@@ -66,7 +66,7 @@ Event structure (Based on modbus)
 #ifndef SmartWire_h
 #define SmartWire_h
 
-#include "WSWire.h"
+#include "Wire.h"
 
 #define SW_READINGS_BUFFER_LENGTH 20
 
