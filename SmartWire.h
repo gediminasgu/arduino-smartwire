@@ -13,6 +13,13 @@ Event structure (Based on modbus)
   1 - relay/switch/regulator position (0 - off, 255 - on)
   2 - temperature
   3 - general float value (1 byte for value ID, 4 bytes for value)
+  4 - electricity
+      4.1 (byte) - sensor no
+      4.2 (float) - real power
+      4.3 (float) - power factor
+      4.4 (float) - Vrms
+      4.5 (float) - Irms
+      4.6 (float) - total kWh consumed per sensor
  */
 
 
